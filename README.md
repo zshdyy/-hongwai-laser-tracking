@@ -1,123 +1,105 @@
 # Hongwai Laser Tracking（红外/激光视觉追踪）
 
-南科大模电实验 / DIY 电赛题目相关：基于 **摄像头输入（OpenCV）** 的视觉检测与跟踪，并在树莓派上结合 **舵机云台（yaw/pitch）** 实现目标点（红点）对准/追踪控制。
+南科大模电实验 / DIY 电赛题目相关：本项目面向题目“运动目标控制与自动追踪系统”，系统由**两套相互独立的视觉闭环控制系统**组成：
 
-> 仓库代码以 Python 为主，包含：
-> - 摄像头采集与截图保存（`shot.py`）
-> - 棋盘格相机标定（`calibrate.py`）
-> - 树莓派 pigpio 舵机控制 + 视觉检测闭环（`home/analog/workspace/lab_code/controller.py`）
+- **红色系统（运动目标）**：红色激光笔 + 二维云台 + 摄像头（设备A）。通过摄像头检测屏幕上的红色光斑位置，控制红色光斑按要求运动/回原点。
+- **绿色系统（自动追踪）**：绿色激光笔 + 二维云台 + 摄像头（设备B）。通过摄像头检测屏幕上的红色光斑位置，控制绿色光斑追踪红色光斑。
 
----
-
-## 功能概览
-
-- **摄像头实时采集**（OpenCV `VideoCapture`）
-- **截图采集数据集**（按键保存到 `img/`）
-- **棋盘格标定相机**（从 `./img/*.png` 读取棋盘格图像进行标定）
-- **目标检测与闭环控制**（检测红点位置，计算误差，驱动 yaw/pitch 舵机调整）
+> 题目约束通常要求两套系统**彼此独立、不得通过任何方式通信**（不能网络/串口互传坐标等）。两套系统唯一“耦合”来自屏幕上的光斑。
 
 ---
 
-## 目录结构（当前仓库）
+## 题目说明（截图）
 
-- `home/analog/workspace/shot.py`  
-  摄像头预览 + 按键截图保存到 `img/`
-- `home/analog/workspace/calibrate.py`  
-  从 `./img/*.png` 读取棋盘格图片并标定相机（打印相机内参、畸变等）
-- `home/analog/workspace/lab_code/controller.py`  
-  树莓派上运行的控制程序：调用摄像头取图、检测角点/矩形/红点，驱动 pigpio 控制舵机
+> 将你提供的题目截图放在：
+> - `docs/images/task-brief-1.png`
+> - `docs/images/task-brief-2.png`
+
+![task-brief-1](docs/images/task-brief-1.png)
+![task-brief-2](docs/images/task-brief-2.png)
+
+---
+
+## 仓库包含的代码
+
+目前仓库主要包含一套控制逻辑与若干视觉/标定辅助脚本（可在两套系统中复用）：
+
+- `home/analog/workspace/shot.py`
+  - 摄像头预览与采图：按 `s` 保存图片到 `img/`，按 `q` 退出。
+- `home/analog/workspace/calibrate.py`
+  - 棋盘格相机标定（读取 `./img/*.png`），输出相机内参和畸变系数。
+- `home/analog/workspace/lab_code/controller.py`
+  - pigpio 驱动舵机（GPIO: yaw=23, pitch=24）
+  - 从摄像头获取图像，检测屏幕矩形/角点以及红色光斑位置，并做闭环控制。
+- `home/analog/workspace/lab_code/detector/`
+  - `camera.py`：摄像头封装（含去畸变参数）
+  - `detector.py`：红/绿点检测、屏幕角点/矩形检测、透视变换
 
 ---
 
 ## 环境与依赖
 
-- Python 3（仓库依赖见 `requirements.txt`）
-- OpenCV（`cv2`）
-- NumPy
-- 树莓派控制部分需要：
+- Python 3
+- 依赖见 `requirements.txt`
+- 树莓派云台控制需要：
   - `pigpio`（并需要 pigpio daemon 正常运行）
-  - 舵机接线到对应 GPIO（代码里 yaw=23, pitch=24）
+  - 舵机接线到对应 GPIO（当前代码中 yaw=23, pitch=24）
 
 ---
 
-## 快速开始（摄像头预览/截图）
-
-进入项目目录（注意当前脚本使用相对路径保存 `img/`，建议在脚本所在目录运行）：
+## 快速开始（通用：摄像头预览/采图）
 
 ```bash
 cd home/analog/workspace
 python shot.py
 ```
 
-按键说明（来自 `shot.py`）：
+按键：
 - `s`：保存当前帧到 `img/{idx}.png`
 - `q`：退出
 
-> 如果运行报“找不到摄像头/打不开摄像头”，请确认设备存在并尝试把 `VideoCapture(0)` 改成 `1` 或其他索引。
-
 ---
 
-## 相机标定（棋盘格）
+## 相机标定（通用：两套系统都可用）
 
-1. 先用 `shot.py` 拍摄棋盘格图像，存到 `home/analog/workspace/img/`
-2. 运行标定脚本：
+1. 使用 `shot.py` 拍摄棋盘格图片，放入 `home/analog/workspace/img/`
+2. 运行：
 
 ```bash
 cd home/analog/workspace
 python calibrate.py
 ```
 
-说明：
-- 标定脚本会读取 `./img/*.png`
-- 棋盘格角点数量当前设定为：`CHECKERBOARD = (8, 11)`
-- 程序会逐张显示检测到的角点，并最终输出：
-  - Camera matrix（相机内参）
-  - Distortion coefficient（畸变参数）
-  - Rotation/Translation vectors（外参）
-
 ---
 
-## 树莓派舵机控制与视觉闭环（controller）
+## 部署说明（两套独立系统）
 
-入口：
+### 设备A：红色系统（运动目标控制）
+- 连接：摄像头A、红色激光云台
+- 在设备A上运行控制程序（示例）：
 
 ```bash
 cd home/analog/workspace/lab_code
 python controller.py
 ```
 
-你将看到交互输入（来自 `controller.py`）：
-- 输入 `1`：reset（将舵机回到默认角度）
-- 输入 `2`：big（执行一段预设“大范围”运动）
-- 输入 `3`：small（执行基于检测结果的运动流程）
-- 其他输入：退出
+> 备注：当前 `controller.py` 更偏向“对准/移动到目标点”的控制逻辑。若要严格实现题目中的轨迹（回原点、沿边界运动一圈等），建议在此基础上新增“轨迹发生器/模式选择”。
 
-核心逻辑简述：
-- `Camera()` 获取图像
-- 检测矩形/角点并计算透视变换矩阵（`rectangle` / `corner`）
-- 在 ROI/区域内检测红点（`red_point`），得到当前坐标 `(Mx, My)`
-- 计算误差并迭代更新 yaw/pitch 角度，通过 `pigpio` 输出 PWM 脉宽控制舵机
-
-> 注意：`controller.py` 依赖 `detector` 模块与 `camera` 封装（位于 `home/analog/workspace/lab_code/detector/`）。如果你在非树莓派环境运行，`pigpio` 可能不可用。
+### 设备B：绿色系统（自动追踪）
+- 连接：摄像头B、绿色激光云台
+- 运行与设备A独立的追���控制程序（本仓库暂未提供单独入口脚本，可复用 `detector.py` 中的 `red_point/green_point` 逻辑实现追踪闭环）。
 
 ---
 
 ## 常见问题（FAQ）
 
-### 1. 摄像头打不开（`VideoCapture(0)` 失败）
-- 尝试更换索引：`VideoCapture(1)` / `VideoCapture(2)`
-- 确认系统没有被其它程序占用摄像头
-- 在树莓派上确认摄像头已启用并能被系统识别
+### 摄像头打不开
+- 尝试更换 `VideoCapture(0)` 的索引（不同设备编号不同）
+- 确认没有被其它程序占用
 
-### 2. `img/` 目录不存在导致保存失败
-在 `home/analog/workspace` 下新建 `img` 目录：
-```bash
-mkdir -p img
-```
-
-### 3. 树莓派 pigpio 相关
-- 确认已安装并启动 pigpio daemon（不同系统命令可能不同）
-- 确认 GPIO 引脚号与接线一致（代码中 yaw=23, pitch=24）
+### pigpio 不工作
+- 确认在树莓派上安装并启动 pigpio daemon
+- 确认 GPIO 引脚与代码一致
 
 ---
 
