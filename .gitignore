@@ -16,3 +16,17 @@ Thumbs.db
 *.mp4
 *.mov
 *.avi
+
+# ===== Python ignore =====
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+env/
+lab_venv/
+home/**/lab_venv/
+
+# Jupyter
+.ipynb_checkpoints/
